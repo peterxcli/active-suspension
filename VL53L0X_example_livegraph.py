@@ -20,6 +20,7 @@ def animate(i):
     time.sleep(timing/1000000.00)
     ax1.clear()
     ax1.plot(xarr, yarr)
+    fig.savefig("record.png")
 
 
 # Create a VL53L0X object
@@ -27,7 +28,6 @@ tof = VL53L0X.VL53L0X()
 tof.open()
 # Start ranging
 tof.start_ranging(VL53L0X.Vl53l0xAccuracyMode.BETTER)
-
 timing = tof.get_timing()
 if timing < 20000:
     timing = 20000
@@ -36,7 +36,7 @@ print("Timing %d ms" % (timing/1000))
 print("Press ctrl-c to exit")
 
 ani = animation.FuncAnimation(fig, animate, interval=100)
-plt.savefig("record.png")
+
 plt.show()
 tof.stop_ranging()
 tof.close()
