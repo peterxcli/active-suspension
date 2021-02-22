@@ -35,89 +35,85 @@ class real_env(object):
         self.tof = VL53L0X.VL53L0X(i2c_bus=1,i2c_address=0x29)
         self.tof.open()
         self.tof.start_ranging(VL53L0X.Vl53l0xAccuracyMode.BETTER)
-        self.balance_pos = 133
+        self.balance_pos = 147
         self.state = np.array([])
+        # self.action_high_bound = 147
 
     def step(self, action):
         self.output(action[0])
         state = self.metering()
-        state = np.append(state, [action])
-        state[1] = state[1] - self.state[1]
-        state /= 100.0
-        self.state = state
-        reward = self.cac_reward(state)
+        reward = self.cac_reward(state, action[0])
         return state, reward
 
     def reset(self):
         state = self.metering()
+        self.p.ChangeDutyCycle(0)
         cnt = 0
         print("start reset")
-        while abs(state[2]) <= 4 and cnt < 200:
+        while abs(state[2]*10) > 4 or cnt < 200:
             cnt += 1
             state = self.metering()
             if abs(state[2]) > 4:
                 cnt = 0
         print("reset complete!!")
-        state = np.append(state, 0) #init action
-        state[1] = 0
-        state /= 100.0
-        self.p.ChangeDutyCycle(0)
-        self.state = state
-        return state
+        print("start random")
+        random.seed(time.time())
+        consist_time = random.randint(5, 10)
+        action = -99
+        # if action % 2 == 0: action *= -1
+        pre_time = time.time()
+        while time.time()-pre_time < consist_time:
+            self.output(action)
 
-    def cac_reward(self, state):
-        ret = 0.0
-        ret = -(state[1]**2 + state[2]**2 + state[3]**2) 
+        print("random complete!!")
+        self.p.ChangeDutyCycle(0)
+        return self.metering()
+
+    def cac_reward(self, state, action):
+        ret = -(10*((state[1]*10)**2) + 10*((state[2]*10)**2) + (action/50.0)**2) 
+        # ret = -(100*((state[1]*10)**3) + 100*abs(((state[2]*10)**3)) + (action/50.0)**3)*0.01 
+        # ret = -((state[1]*10)**2 + (state[2]*10)**2 + (action/50.0)**2)
+        # ret = -((state[1]*10)**2 + (state[2]*10)**2 + (action/100.0)**2)
         
-        return np.array(ret)
+        return np.array([ret]).astype(np.float)
 
     def output(self, voltage):
         if voltage > 0:
             GPIO.output(self.IN1, GPIO.HIGH)
             GPIO.output(self.IN2, GPIO.LOW)
+            self.p.ChangeDutyCycle(max(abs(voltage), 0))
         else :
             GPIO.output(self.IN1, GPIO.LOW)
             GPIO.output(self.IN2, GPIO.HIGH)
+            self.p.ChangeDutyCycle(max(abs(voltage), 0))
 
-        self.p.ChangeDutyCycle(abs(voltage))
+        # self.p.ChangeDutyCycle(abs(voltage))
+        
 
     def metering(self):
-        distance = self.tof.get_distance()
-        return np.array([distance, distance, distance-self.balance_pos]).astype(np.float32) #[pos, pos_diff, distance_between_cur_pos_and_balance_pos, ]
+        distance0 = self.tof.get_distance()
+        distance1 = self.tof.get_distance()
+        ret = np.array([distance1, abs(distance1 - distance0), distance1-self.balance_pos]).astype(np.float) #[pos, velocity, distance_between_cur_pos_and_balance_pos, ]
+        ret /= 10.0
+        return ret
 
     def exit(self):
         self.p.stop()
         GPIO.cleanup()
 
 if __name__ == "__main__":
-    sine = [
-        127, 134, 142, 150, 158, 166, 173, 181, 
-        188, 195, 201, 207, 213, 219, 224, 229, 234, 238, 241, 
-        245, 247, 250, 251, 252, 253, 254, 253, 252, 251, 250, 
-        247, 245, 241, 238, 234, 229, 224, 219, 213, 207, 201, 195, 
-        188, 181, 173, 166, 158, 150, 142, 134, 127, 119, 111, 103, 
-        95, 87, 80, 72, 65, 58, 52, 46, 40, 34, 29, 24, 19, 15, 12, 8, 
-        6, 3, 2, 1, 0, 0, 0, 1, 2, 3, 6, 8, 12, 15, 19, 24, 29, 34, 40, 
-        46, 52, 58, 65, 72, 80, 87, 95, 103, 111, 119
-    ]
-
     env = make('real')
     print(env.observation_space.shape[0])
     print(env.action_space.shape[0])
     s0 = env.reset()
     ep = 0
-    idx = 0 
 
     while ep < 200:
-        action = (sine[idx]-127)/2
-        # action = 100
+        action = np.array([random.randint(0, 100)]).astype(np.float32)
         s1, r1 = env.step(action)
         print("EP:", ep, ":", action, s1, r1)
         s0 = s1
         ep += 1
-        idx += 1
-        idx %= len(sine)
-        # time.sleep(500/1000000.0)
 
     env.p.stop()
     GPIO.cleanup()
